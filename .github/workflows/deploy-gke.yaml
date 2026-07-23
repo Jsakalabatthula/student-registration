@@ -37,7 +37,7 @@ jobs:
           location: ${{ vars.GKE_LOCATION }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Verify cluster and namespace
+      - name: Verify cluster resources
         run: |
           echo "Current Kubernetes context:"
           kubectl config current-context
@@ -46,18 +46,13 @@ jobs:
           kubectl get ns
 
           echo "Resources in namespace:"
-          kubectl get all -n "${{ vars.K8S_NAMESPACE }}" || true
+          kubectl get all -n "${{ vars.K8S_NAMESPACE }}"
 
-      - name: Apply Kubernetes manifests
-        run: |
-          kubectl apply -f k8s/app-deployment.yaml
-          kubectl apply -f k8s/app-service.yaml
-          kubectl apply -f k8s/gateway.yaml
-          kubectl apply -f k8s/route.yaml
-
-          if [ -f k8s/healthcheck-policy.yaml ]; then
-            kubectl apply -f k8s/healthcheck-policy.yaml
-          fi
+          echo "Current deployment image:"
+          kubectl get deployment student-registration \
+            -n "${{ vars.K8S_NAMESPACE }}" \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+          echo
 
       - name: Deploy existing image
         run: |
