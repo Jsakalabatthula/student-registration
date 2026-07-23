@@ -1,4 +1,4 @@
-name: Build and deploy to GKE
+name: Deploy existing image to GKE
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 env:
-  IMAGE: ${{ vars.GAR_LOCATION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/student-registration
+  IMAGE: ${{ vars.GAR_LOCATION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/student-registration:manual-v1
 
 jobs:
   deploy:
@@ -30,15 +30,6 @@ jobs:
       - name: Set up Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev --quiet
-
-      - name: Build and push image
-        run: |
-          docker build -t "$IMAGE:${GITHUB_SHA}" .
-          docker push "$IMAGE:${GITHUB_SHA}"
-
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v3
         with:
@@ -48,13 +39,13 @@ jobs:
 
       - name: Verify cluster and namespace
         run: |
-          echo "Current context:"
+          echo "Current Kubernetes context:"
           kubectl config current-context
 
           echo "Namespaces:"
           kubectl get ns
 
-          echo "Resources in namespace ${{ vars.K8S_NAMESPACE }}:"
+          echo "Resources in namespace:"
           kubectl get all -n "${{ vars.K8S_NAMESPACE }}" || true
 
       - name: Apply Kubernetes manifests
@@ -68,10 +59,10 @@ jobs:
             kubectl apply -f k8s/healthcheck-policy.yaml
           fi
 
-      - name: Deploy new image
+      - name: Deploy existing image
         run: |
           kubectl set image deployment/student-registration \
-            application="$IMAGE:${GITHUB_SHA}" \
+            application="$IMAGE" \
             -n "${{ vars.K8S_NAMESPACE }}"
 
           kubectl rollout status deployment/student-registration \
