@@ -46,15 +46,15 @@ jobs:
           location: ${{ vars.GKE_LOCATION }}
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Verify Kubernetes context
+      - name: Verify cluster and namespace
         run: |
-          echo "Current Kubernetes context:"
+          echo "Current context:"
           kubectl config current-context
 
           echo "Namespaces:"
           kubectl get ns
 
-          echo "Resources in namespace:"
+          echo "Resources in namespace ${{ vars.K8S_NAMESPACE }}:"
           kubectl get all -n "${{ vars.K8S_NAMESPACE }}" || true
 
       - name: Apply Kubernetes manifests
@@ -84,3 +84,4 @@ jobs:
           kubectl get svc -n "${{ vars.K8S_NAMESPACE }}"
           kubectl get gateway -n "${{ vars.K8S_NAMESPACE }}"
           kubectl get httproute -n "${{ vars.K8S_NAMESPACE }}"
+          curl -I https://test3.deltaintech.co.in || true
