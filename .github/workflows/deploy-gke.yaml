@@ -1,75 +1,86 @@
-name: Deploy existing image to GKE
-
+name: Build and deploy to GKE
 
 on:
-
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
-
 permissions:
-
   contents: read
-
   id-token: write
 
-
 env:
-
-  IMAGE: asia-south1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/student-registration:manual-v1
-
+  IMAGE: ${{ vars.GAR_LOCATION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/student-registration
 
 jobs:
-
   deploy:
-
     runs-on: ubuntu-latest
 
-
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-    - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
 
-      uses: google-github-actions/auth@v3
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
 
-      with:
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev --quiet
 
-        workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+      - name: Build and push image
+        run: |
+          docker build -t "$IMAGE:${GITHUB_SHA}" .
+          docker push "$IMAGE:${GITHUB_SHA}"
 
-        service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v3
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
 
+      - name: Verify Kubernetes context
+        run: |
+          echo "Current Kubernetes context:"
+          kubectl config current-context
 
-    - name: Set up Google Cloud CLI
+          echo "Namespaces:"
+          kubectl get ns
 
-      uses: google-github-actions/setup-gcloud@v3
+          echo "Resources in namespace:"
+          kubectl get all -n "${{ vars.K8S_NAMESPACE }}" || true
 
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/app-deployment.yaml
+          kubectl apply -f k8s/app-service.yaml
+          kubectl apply -f k8s/gateway.yaml
+          kubectl apply -f k8s/route.yaml
 
-    - name: Get GKE credentials
+          if [ -f k8s/healthcheck-policy.yaml ]; then
+            kubectl apply -f k8s/healthcheck-policy.yaml
+          fi
 
-      uses: google-github-actions/get-gke-credentials@v3
+      - name: Deploy new image
+        run: |
+          kubectl set image deployment/student-registration \
+            application="$IMAGE:${GITHUB_SHA}" \
+            -n "${{ vars.K8S_NAMESPACE }}"
 
-      with:
+          kubectl rollout status deployment/student-registration \
+            -n "${{ vars.K8S_NAMESPACE }}" \
+            --timeout=180s
 
-        cluster_name: ${{ vars.GKE_CLUSTER }}
-
-        location: ${{ vars.GKE_LOCATION }}
-
-        project_id: ${{ vars.GCP_PROJECT_ID }}
-
-
-    - name: Deploy existing image
-
-      run: |
-
-        kubectl set image deployment/student-registration \
-
-          application="$IMAGE" \
-
-          -n "${{ vars.K8S_NAMESPACE }}"
-
-
-        kubectl rollout status deployment/student-registration \
-
-          -n "${{ vars.K8S_NAMESPACE }}" \
-
-          --timeout=180s
- 
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n "${{ vars.K8S_NAMESPACE }}" -o wide
+          kubectl get svc -n "${{ vars.K8S_NAMESPACE }}"
+          kubectl get gateway -n "${{ vars.K8S_NAMESPACE }}"
+          kubectl get httproute -n "${{ vars.K8S_NAMESPACE }}"
